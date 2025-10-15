@@ -529,6 +529,12 @@ app.get('/api/attendance', async (req, res) => {
 // Health
 app.get('/health', (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
 
+// health check for Render
+app.get('/healthz', (req, res) => {
+  return res.json({ ok: true, uptime: process.uptime(), time: new Date().toISOString() });
+});
+
+
 app.listen(PORT, () => {
   console.log(`Attendance API server running on http://localhost:${PORT}`);
   console.log('Ensure .env SECRET is set. Output dir:', OUTPUT_DIR);
