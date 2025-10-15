@@ -1,0 +1,15 @@
+{
+  "studentName": "Demo Student",
+  "attendance": [
+    { "subject": "Community Medicine(II) Theory", "present": 1, "absent": 0 },
+    { "subject": "CP_OBG", "present": 3, "absent": 0 },
+    { "subject": "Forensic Medicine Theory", "present": 1, "absent": 0 },
+    { "subject": "General Surgery Theory", "present": 2, "absent": 0 },
+    { "subject": "Microbiology Practical", "present": 1, "absent": 0 },
+    { "subject": "Microbiology Theory", "present": 4, "absent": 0 },
+    { "subject": "Pathology Practical", "present": 3, "absent": 1 },
+    { "subject": "Pathology Theory", "present": 3, "absent": 1 },
+    { "subject": "Pharmacology Theory", "present": 3, "absent": 0 },
+    { "subject": "Pharmacology Practical", "present": 0, "absent": 3 }
+  ]
+}
