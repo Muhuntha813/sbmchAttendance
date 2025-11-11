@@ -14,10 +14,22 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { body, validationResult } from 'express-validator';
 import logger from './lib/logger.js';
+import { initSentry } from './lib/sentry.js';
 
 dotenv.config();
 
+// Initialize Sentry if SENTRY_DSN is provided
+const Sentry = initSentry();
+if (Sentry) {
+  logger.info('Sentry initialized');
+}
+
 const app = express();
+
+// Sentry request handler (must be before all routes)
+if (Sentry) {
+  app.use(Sentry.Handlers.requestHandler());
+}
 
 // Security headers
 app.use(helmet());
@@ -476,6 +488,12 @@ app.get('/healthz', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   logger.error('Unhandled error', { message: err.message, stack: err.stack, url: req.url, method: req.method });
+  
+  // Send to Sentry if initialized
+  if (Sentry) {
+    Sentry.captureException(err);
+  }
+  
   if (err.message === 'Not allowed by CORS') {
     return res.status(403).json({ error: 'CORS policy: origin not allowed' });
   }
@@ -483,6 +501,11 @@ app.use((err, req, res, next) => {
     error: process.env.NODE_ENV === 'production' ? 'internal_server_error' : err.message 
   });
 });
+
+// Sentry error handler (must be after all routes and error handlers)
+if (Sentry) {
+  app.use(Sentry.Handlers.errorHandler());
+}
 
 // 404 handler
 app.use((req, res) => {
