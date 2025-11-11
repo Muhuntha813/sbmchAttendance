@@ -10,7 +10,6 @@ import fetch from 'node-fetch';
 import { CookieJar } from 'tough-cookie';
 import fetchCookie from 'fetch-cookie';
 import * as cheerio from 'cheerio';
-import puppeteer from 'puppeteer';
 
 dotenv.config();
 
@@ -19,9 +18,12 @@ app.use(bodyParser.json());
 
 // --- CORS + Request Logging ---
 app.use(cors({
-  origin: 'http://localhost:5173',
-  methods: ['GET','POST','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization'],
+  origin: (_origin, callback) => {
+    // Allow all origins (suitable for internal tooling / development)
+    callback(null, true);
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: false
 }));
 
@@ -32,9 +34,14 @@ app.use((req, res, next) => {
 });
 // --- End CORS + Logging ---
 
-const SECRET = process.env.SECRET || 'changeme';
+// Enforce SECRET in production
+if (process.env.NODE_ENV === 'production' && !process.env.SECRET) {
+  console.error('FATAL: SECRET env var is required in production');
+  process.exit(1);
+}
+
+const SECRET = process.env.SECRET || 'dev-secret-for-local';
 const PORT = process.env.PORT || 3000;
-const PUPPETEER_TIMEOUT = parseInt(process.env.PUPPETEER_TIMEOUT || '30000', 10);
 
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output');
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -91,329 +98,205 @@ function computeCanMiss(present, total) {
   return Math.max(0, allowed);
 }
 
-// --- Scraper Attempt: direct HTTP fetch + cheerio ---
-// NOTE: update selectors according to your LMS HTML structure.
-async function attemptDirectLogin({ username, password, fromDate, toDate }) {
-  console.log('[scrape] attemptDirectLogin start for', username);
-  try {
-    const jar = new CookieJar();
-    const fetchWithCookies = fetchCookie(fetch, jar);
+const LMS_BASE = 'https://sbmchlms.com/lms';
+const LOGIN_URL = `${LMS_BASE}/site/userlogin`;
+const DASHBOARD_URL = `${LMS_BASE}/user/user/dashboard`;
+const ATTENDANCE_PAGE_URL = `${LMS_BASE}/user/attendence/subjectbyattendance`;
+const ATTENDANCE_API_URL = `${LMS_BASE}/user/attendence/subjectgetdaysubattendence`;
+const ORIGIN = 'https://sbmchlms.com';
 
-    // 1) GET login page to obtain cookies / hidden tokens (if any)
-    const LOGIN_URL = 'https://sbmchlms.com/lms/site/userlogin';
-    const ATT_URL = 'https://sbmchlms.com/lms/user/attendence/subjectbyattendance';
-    console.log('[debug] LOGIN_URL:', LOGIN_URL);
-    console.log('[debug] ATT_URL:', ATT_URL);
+const DEFAULT_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Cache-Control': 'no-cache'
+};
 
-    const loginPageRes = await fetchWithCookies(LOGIN_URL, { method: 'GET', timeout: PUPPETEER_TIMEOUT });
-    const loginHtml = await loginPageRes.text();
-    const $login = cheerio.load(loginHtml);
-
-    // Try to find hidden inputs like CSRF - adapt selector if LMS uses them
-    const hiddenInputs = {};
-    $login('input[type="hidden"]').each((i, el) => {
-      hiddenInputs[$login(el).attr('name')] = $login(el).val();
-    });
-
-    // Prepare form data - adapt field names to LMS form
-    const form = new URLSearchParams();
-    form.append('username', username);
-    form.append('password', password);
-
-    // append hidden tokens if present
-    Object.keys(hiddenInputs).forEach(k => form.append(k, hiddenInputs[k]));
-
-    // POST login
-    const postLogin = await fetchWithCookies(LOGIN_URL, {
-      method: 'POST',
-      body: form,
-      redirect: 'manual',
-      timeout: PUPPETEER_TIMEOUT,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
-    });
-
-    // If login succeeded, server often redirects to dashboard
-    if (postLogin.status !== 302 && postLogin.status !== 200) {
-      console.log('[scrape] direct login response status', postLogin.status);
-      throw new Error('Direct login likely failed (unexpected status).');
-    }
-
-    // GET attendance page with date params if required (may need query or POST)
-    // Try simple GET first; if LMS needs params, you'll need to adapt.
-    const attRes = await fetchWithCookies(ATT_URL, { method: 'GET', timeout: PUPPETEER_TIMEOUT });
-    const attHtml = await attRes.text();
-    // Save raw attendance page HTML for debugging (direct fetch)
-    try {
-      const pageFile = path.join(OUTPUT_DIR, `${username}-attendance-page.html`);
-      atomicWrite(pageFile, attHtml);
-      console.log(`[debug] saved attendance HTML -> ${pageFile}`);
-    } catch (e) {
-      console.error('[debug] failed to save attendance HTML (direct):', e && e.message ? e.message : e);
-    }
-    const $ = cheerio.load(attHtml);
-
-    // Debugging: print small snippet
-    if (attHtml.length < 200) {
-      console.log('[scrape] attendance page HTML small length:', attHtml.length);
-    }
-
-    // Locate table rows - adjust selector to real LMS markup
-    const table = $('.attendance_result table').first();
-    if (!table || table.length === 0) {
-      console.log('[scrape] attendance table not found in direct attempt');
-      console.log('[debug] attendance page snippet:', attHtml.slice(0,500));
-      throw new Error('Attendance table not found via direct fetch');
-    }
-
-    const rows = [];
-    table.find('tbody tr').each((i, tr) => {
-      const tds = $(tr).find('td');
-      if (tds.length < 3) return;
-      const subject = $(tds[0]).text().trim();
-      const percentText = $(tds[1]).text().trim();
-      // try to extract present/total from third column like "22 / 29"
-      const third = $(tds[2]).text().trim();
-      const m = third.match(/(\d+)\s*\/\s*(\d+)/);
-      let present = 0, total = 0;
-      if (m) { present = parseInt(m[1], 10); total = parseInt(m[2], 10); }
-      const percent = isNaN(parseFloat(percentText)) ? computePercent(present, total) : parseFloat(parseFloat(percentText).toFixed(2));
-      rows.push({ subject, present, total, absent: total - present, percent });
-    });
-
-    if (!rows.length) {
-      console.log('[scrape] direct fetch parsed 0 rows');
-      console.log('[debug] attendance page snippet:', attHtml.slice(0,500));
-      throw new Error('Parsed zero attendance rows via direct fetch');
-    }
-
-    console.log(`[scrape] direct fetch succeeded, rows=${rows.length}`);
-    return rows;
-  } catch (err) {
-    console.error('[scrape] direct login error:', err && err.message ? err.message : err);
-    throw err;
-  }
+function cleanText(value) {
+  return (value || '').replace(/\s+/g, ' ').trim();
 }
 
-// --- Scraper Fallback: Puppeteer headless ---
-// --- Puppeteer scraping using the exact selectors from your original script ---
-async function runPuppeteerScrape({ username, password, fromDate, toDate }) {
-  console.log('[scrape] runPuppeteerScrape start for', username);
-  const LOGIN_URL = 'https://sbmchlms.com/lms/site/userlogin';
-  const ATT_URL   = 'https://sbmchlms.com/lms/user/attendence/subjectbyattendance';
-
-  let browser;
-  try {
-    const executablePath =
-      process.env.PUPPETEER_EXECUTABLE_PATH ||
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-
-    // guard
-    if (!fs.existsSync(executablePath)) {
-      console.warn('[scrape] PUPPETEER_EXECUTABLE_PATH not found, attempting default launch');
-    } else {
-      console.log('[scrape] using Chrome at', executablePath);
-    }
-
-    browser = await puppeteer.launch({
-      headless: true,
-      executablePath: fs.existsSync(executablePath) ? executablePath : undefined,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      defaultViewport: { width: 1366, height: 900 }
-    });
-
-    const page = await browser.newPage();
-
-    // --- Login ---
-    console.log('[scrape] goto LOGIN_URL', LOGIN_URL);
-    await page.goto(LOGIN_URL, { waitUntil: 'networkidle2', timeout: PUPPETEER_TIMEOUT });
-
-    // fill credentials (selectors from your script)
-    await page.type('input[name="username"]', username, { delay: 25 });
-    await page.type('input[name="password"]', password, { delay: 25 });
-
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: PUPPETEER_TIMEOUT }),
-      page.click('button[type="submit"], input[type="submit"]')
-    ]).catch(e => {
-      console.warn('[scrape] login navigation/wait failed (continuing):', e && e.message ? e.message : e);
-    });
-
-    // ===== Try to fetch student name from dashboard (optional) =====
-    let studentName = username;
-    try {
-      await page.waitForSelector('h4.mt0', { timeout: 8000 });
-      studentName = await page.$eval('h4.mt0', el => el.innerText.replace('Welcome,','').trim());
-    } catch (e) {
-      console.log('[scrape] student name selector not found, using username');
-    }
-    console.log('[scrape] Student Name:', studentName);
-
-    // --- Attendance page ---
-    console.log('[scrape] goto ATT_URL', ATT_URL);
-    await page.goto(ATT_URL, { waitUntil: 'networkidle2', timeout: PUPPETEER_TIMEOUT });
-    // Replace deprecated/unsupported Puppeteer waitForTimeout with a simple delay
-    await new Promise(res => setTimeout(res, 600));
-
-    // helper to set date into inputs exactly like your script
-    async function setDate(sel, value) {
-      try {
-        await page.click(sel, { clickCount: 3 }).catch(()=>{});
-        await page.keyboard.down('Control').catch(()=>{});
-        await page.keyboard.press('KeyA').catch(()=>{});
-        await page.keyboard.up('Control').catch(()=>{});
-        await page.keyboard.press('Backspace').catch(()=>{});
-        await page.type(sel, value, { delay: 20 });
-        await page.$eval(sel, el => {
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-      } catch (e) {
-        console.log('[scrape] setDate failed for', sel, e && e.message ? e.message : e);
-      }
-    }
-
-    // If fromDate/toDate provided use them, else default to what caller passed
-    if (!fromDate) fromDate = ''; // or keep default from caller
-    if (!toDate)   toDate = '';
-
-    // Try setting the known selectors
-    await setDate('#dob', fromDate || '');
-    await setDate('#end_dob', toDate || '');
-
-    // Select "All subjects" if dropdown exists (optional)
-    try {
-      if (await page.$('#subject_id')) {
-        await page.select('#subject_id', '');
-        await page.$eval('#subject_id', el => el.dispatchEvent(new Event('change', { bubbles: true })));
-      }
-    } catch (e) {
-      console.log('[scrape] subject select failed (non-fatal):', e && e.message ? e.message : e);
-    }
-
-    // Click Search button (use same approach: check for "search" text)
-    try {
-      const searchSelector = 'button, input[type="button"], input[type="submit"]';
-      const btns = await page.$$(searchSelector);
-      let clicked = false;
-      for (const b of btns) {
-        const txt = (await page.evaluate(el => (el.innerText || el.value || '').trim().toLowerCase(), b));
-        if (txt.includes('search')) { await b.click(); clicked = true; break; }
-      }
-      if (!clicked) console.log('[scrape] Search button not found — continuing without click');
-    } catch (e) {
-      console.log('[scrape] clicking search failed (non-fatal):', e && e.message ? e.message : e);
-    }
-
-    // Wait for results using the exact selector you used
-    await page.waitForFunction(() => {
-      const box = document.querySelector('.attendance_result');
-      if (!box) return false;
-      const table = box.querySelector('table');
-      if (!table) return false;
-      return table.querySelectorAll('td').length > 0;
-    }, { timeout: 20000 }).catch(() => {
-      console.warn('[scrape] waitForFunction timed out; proceeding to try to read DOM anyway');
-    });
-
-    // get HTML (for debugging + parsing)
-    const attHtml = await page.content();
-
-    // --- DEBUG: save HTML snippet & full file ---
-    try {
-      const pageFile = path.join(OUTPUT_DIR, `${username}-attendance-page.html`);
-      fs.writeFileSync(pageFile, attHtml, 'utf8');
-      console.log(`[debug] saved attendance HTML -> ${pageFile}`);
-    } catch (e) {
-      console.error('[debug] failed to save attendance HTML:', e && e.message ? e.message : e);
-    }
-    try { console.log('[debug] attendance page snippet (first 2000 chars):', attHtml.slice(0,2000)); } catch (e){}
-
-    // --- Scrape the table using the exact DOM mapping from your original script ---
-    const rows = await page.evaluate(() => {
-      const box = document.querySelector('.attendance_result');
-      if (!box) return [];
-      const table = box.querySelector('table');
-      if (!table) return [];
-      const trs = Array.from(table.querySelectorAll('tbody tr')).filter(tr => tr.querySelectorAll('td').length);
-
-      return trs.map(tr => {
-        const tds = Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim());
-        if (tds.length < 3) return null;
-
-        const subject = tds[0];
-        const attendancePercentRaw = tds[1];
-        const attendancePercent = isNaN(parseFloat(attendancePercentRaw))
-          ? attendancePercentRaw
-          : parseFloat(parseFloat(attendancePercentRaw).toFixed(2));
-
-        const presentText = tds[2];
-        const m = presentText.match(/(\d+)\s*\/\s*(\d+)/);
-        const present = m ? parseInt(m[1], 10) : 0;
-        const total   = m ? parseInt(m[2], 10) : 0;
-
-        return { subject, present, total, absent: total - present, percent: attendancePercent };
-      }).filter(Boolean);
-    });
-
-    console.log('[scrape] Rows parsed (puppeteer):', rows.length);
-    // compute required/margin
-    const processed = rows.map(r => {
-      const percent = (typeof r.percent === 'number') ? +r.percent.toFixed(2) : (r.total ? +((r.present / r.total) * 100).toFixed(2) : 0);
-      const margin = computeCanMiss(r.present, r.total);
-      const required = computeRequired(r.present, r.total);
-      return {
-        subject: r.subject,
-        present: r.present,
-        absent: r.absent,
-        total: r.total,
-        percent,
-        margin,
-        required
-      };
-    });
-
-    // save to output
-    const out = {
-      studentName,
-      fetchedAt: new Date().toISOString(),
-      attendance: processed
-    };
-    const outPath = path.join(OUTPUT_DIR, `${username}-attendance.json`);
-    atomicWrite(outPath, JSON.stringify(out, null, 2));
-    // also save latest
-    const latestPath = path.join(OUTPUT_DIR, `latest-${username}.json`);
-    atomicWrite(latestPath, JSON.stringify(out, null, 2));
-
-    console.log(`[scrape] saved attendance ${processed.length} rows -> ${outPath}`);
-
-    await browser.close();
-    return rows;
-  } catch (err) {
-    console.error('[scrape] puppeteer error:', err && err.message ? err.message : err);
-    if (browser) {
-      try { await browser.close(); } catch (e) {}
-    }
-    throw err;
-  }
+function withDefaultHeaders(headers = {}) {
+  return { ...DEFAULT_HEADERS, ...headers };
 }
 
+async function loginToLms({ username, password }) {
+  const jar = new CookieJar();
+  const fetchWithCookies = fetchCookie(fetch, jar);
+  const client = (url, options = {}) => {
+    const headers = withDefaultHeaders(options.headers);
+    return fetchWithCookies(url, { ...options, headers });
+  };
+
+  const loginPage = await client(LOGIN_URL, { method: 'GET' });
+  if (!loginPage.ok) {
+    throw new Error(`Login page request failed (${loginPage.status})`);
+  }
+  const loginHtml = await loginPage.text();
+  const $login = cheerio.load(loginHtml);
+  const hiddenInputs = {};
+  $login('input[type="hidden"]').each((_, el) => {
+    const name = $login(el).attr('name');
+    if (!name) return;
+    hiddenInputs[name] = $login(el).attr('value') ?? '';
+  });
+
+  const form = new URLSearchParams();
+  form.set('username', username);
+  form.set('password', password);
+  Object.entries(hiddenInputs).forEach(([key, value]) => form.append(key, value ?? ''));
+
+  const loginResponse = await client(LOGIN_URL, {
+    method: 'POST',
+    body: form,
+    headers: withDefaultHeaders({
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Origin: ORIGIN,
+      Referer: LOGIN_URL
+    }),
+    redirect: 'manual'
+  });
+
+  if ([301, 302, 303].includes(loginResponse.status)) {
+    const location = loginResponse.headers.get('location');
+    if (location) {
+      const destination = new URL(location, LOGIN_URL).toString();
+      await client(destination, { method: 'GET' });
+    }
+  } else {
+    const body = await loginResponse.text();
+    if (!loginResponse.ok || /invalid username|password/i.test(body)) {
+      throw new Error('Login failed: the LMS rejected the credentials or returned an unexpected response.');
+    }
+  }
+
+  return { client };
+}
+
+function parseUpcomingClasses($) {
+  const upcoming = [];
+  $('.user-progress .lecture-list').each((_, li) => {
+    const $li = $(li);
+    const avatar = cleanText($li.find('img').attr('src') || $li.find('img').attr('data-src') || '');
+    let title = cleanText($li.find('.media-title').first().text());
+    if (!title) {
+      title = cleanText($li.find('.bmedium').first().text());
+    }
+    const subtitle = cleanText($li.find('.text-muted').first().text());
+    const msAuto = $li.find('.ms-auto').first();
+    let location = '';
+    let time = '';
+    if (msAuto && msAuto.length) {
+      location = cleanText(msAuto.find('.bmedium').first().text());
+      if (!location) {
+        location = cleanText(msAuto.children().first().text());
+      }
+      time = cleanText(msAuto.find('.text-muted').first().text());
+      if (!time && msAuto.children().length > 1) {
+        time = cleanText(msAuto.children().eq(1).text());
+      }
+    }
+    upcoming.push({ title, subtitle, location, time, avatar });
+  });
+  return upcoming;
+}
+
+async function fetchStudentDashboard(client, username) {
+  const dashboardResponse = await client(DASHBOARD_URL, { method: 'GET' });
+  if (!dashboardResponse.ok) {
+    throw new Error(`Dashboard request failed (${dashboardResponse.status})`);
+  }
+  const html = await dashboardResponse.text();
+  if (/Student Login/i.test(html) && /Username/i.test(html)) {
+    throw new Error('Session invalid – dashboard returned login page.');
+  }
+  const $ = cheerio.load(html);
+  let studentName = cleanText($('h4.mt0').first().text().replace(/Welcome,/i, ''));
+  if (!studentName) {
+    studentName = username;
+  }
+  const upcomingClasses = parseUpcomingClasses($);
+  return { studentName, upcomingClasses };
+}
+
+function parseAttendanceRows(resultPage) {
+  if (!resultPage) return [];
+  const $ = cheerio.load(resultPage);
+  const rows = [];
+  $('table tbody tr').each((_, tr) => {
+    const $tr = $(tr);
+    const tds = $tr.find('td');
+    if (tds.length < 3) return;
+    const subject = cleanText($(tds[0]).text());
+    const percentText = cleanText($(tds[1]).text());
+    const presentText = cleanText($(tds[2]).text());
+    const percentMatch = percentText.match(/[\d.]+/);
+    const percentValue = percentMatch ? parseFloat(percentMatch[0]) : NaN;
+    const ratioMatch = presentText.match(/(\d+)\s*\/\s*(\d+)/);
+    const sessionsCompleted = ratioMatch ? parseInt(ratioMatch[1], 10) : 0;
+    const totalSessions = ratioMatch ? parseInt(ratioMatch[2], 10) : 0;
+    const present = sessionsCompleted;
+    const total = totalSessions;
+    const absent = total >= present ? total - present : 0;
+    const percent = !Number.isNaN(percentValue)
+      ? +percentValue.toFixed(2)
+      : (total ? +((present / total) * 100).toFixed(2) : 0);
+    rows.push({
+      subject,
+      sessionsCompleted,
+      totalSessions,
+      present,
+      total,
+      absent,
+      percent
+    });
+  });
+  return rows;
+}
+
+async function fetchAttendanceTable(client, { fromDate, toDate, subjectId = '' }) {
+  await client(ATTENDANCE_PAGE_URL, { method: 'GET' });
+
+  const payload = new URLSearchParams();
+  payload.set('date', fromDate || '');
+  payload.set('end_date', toDate || '');
+  payload.set('subject', subjectId ?? '');
+
+  const response = await client(ATTENDANCE_API_URL, {
+    method: 'POST',
+    headers: withDefaultHeaders({
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With': 'XMLHttpRequest',
+      Referer: ATTENDANCE_PAGE_URL,
+      Accept: 'application/json, text/javascript, */*; q=0.01'
+    }),
+    body: payload
+  });
+
+  if (!response.ok) {
+    throw new Error(`Attendance API request failed (${response.status})`);
+  }
+
+  const json = await response.json().catch(() => null);
+  if (!json) {
+    throw new Error('Attendance API returned an empty response.');
+  }
+  if (String(json.status) !== '1') {
+    if (json.result_page) {
+      return parseAttendanceRows(json.result_page);
+    }
+    return [];
+  }
+  return parseAttendanceRows(json.result_page || '');
+}
 
 // --- Combined scrape function ---
 async function scrapeAttendance({ username, password, fromDate, toDate }) {
   console.log('[scrape] scrapeAttendance called for', username);
-  // 1) try direct fetch
-  try {
-    const rows = await attemptDirectLogin({ username, password, fromDate, toDate });
-    if (rows && rows.length) return rows;
-  } catch (err) {
-    console.log('[scrape] direct fetch failed, will fallback to puppeteer');
-  }
-
-  // 2) fallback to puppeteer
-  const rows = await runPuppeteerScrape({ username, password, fromDate, toDate });
-  return rows;
+  const { client } = await loginToLms({ username, password });
+  const { studentName, upcomingClasses } = await fetchStudentDashboard(client, username);
+  const attendanceRows = await fetchAttendanceTable(client, { fromDate, toDate, subjectId: '' });
+  return { studentName, upcomingClasses, attendanceRows };
 }
 
 // --- Routes ---
@@ -434,21 +317,32 @@ app.post('/api/login', async (req, res) => {
 
     // Start scrape in background but also wait short time so client can call attendance soon.
     if (!scrapingStatus[username] || !scrapingStatus[username].running) {
+      const status = { running: true, promise: null };
+      scrapingStatus[username] = status;
       const job = (async () => {
-        scrapingStatus[username] = { running: true, promise: null };
         try {
           console.log(`[job] starting scrape for ${username}`);
-          const rows = await scrapeAttendance({ username, password, fromDate: fromDate || '', toDate: toDate || '' });
-          // compute extras
-          const processed = rows.map(r => {
-            const percent = computePercent(r.present, r.total);
-            const required = computeRequired(r.present, r.total);
-            const margin = computeCanMiss(r.present, r.total);
+          const normalizedFrom = fromDate || '';
+          const normalizedTo = toDate || '';
+          const result = await scrapeAttendance({
+            username,
+            password,
+            fromDate: normalizedFrom,
+            toDate: normalizedTo
+          });
+
+          const processed = (result.attendanceRows || []).map(row => {
+            const present = typeof row.present === 'number' ? row.present : (row.sessionsCompleted ?? 0);
+            const total = typeof row.total === 'number' ? row.total : (row.totalSessions ?? 0);
+            const absent = Number.isFinite(row.absent) ? row.absent : Math.max(0, total - present);
+            const percent = Number.isFinite(row.percent) ? +row.percent.toFixed(2) : computePercent(present, total);
+            const required = computeRequired(present, total);
+            const margin = computeCanMiss(present, total);
             return {
-              subject: r.subject,
-              present: r.present,
-              absent: r.total - r.present,
-              total: r.total,
+              subject: row.subject,
+              present,
+              absent,
+              total,
               percent,
               margin,
               required
@@ -456,24 +350,26 @@ app.post('/api/login', async (req, res) => {
           });
 
           const out = {
-            studentName: username,
+            studentName: result.studentName || username,
             fetchedAt: new Date().toISOString(),
-            attendance: processed
+            fromDate: normalizedFrom,
+            toDate: normalizedTo,
+            attendance: processed,
+            upcomingClasses: result.upcomingClasses || []
           };
 
           const outPath = path.join(OUTPUT_DIR, `${username}-attendance.json`);
           atomicWrite(outPath, JSON.stringify(out, null, 2));
-          // also write latest-<username>
           const latestPath = path.join(OUTPUT_DIR, `latest-${username}.json`);
           atomicWrite(latestPath, JSON.stringify(out, null, 2));
-          console.log(`[job] saved attendance for ${username} to ${outPath}`);
+          console.log(`[job] saved attendance for ${username} to ${outPath} (${processed.length} subjects, ${out.upcomingClasses.length} upcoming classes)`);
         } catch (err) {
           console.error('[job] scrape job error for', username, err && err.message ? err.message : err);
         } finally {
-          scrapingStatus[username].running = false;
+          status.running = false;
         }
       })();
-      scrapingStatus[username].promise = job;
+      status.promise = job;
     } else {
       console.log('[job] scrape already running for', username);
     }
@@ -535,7 +431,7 @@ app.get('/healthz', (req, res) => {
 });
 
 
-app.listen(PORT, () => {
-  console.log(`Attendance API server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Attendance API server running on http://0.0.0.0:${PORT}`);
   console.log('Ensure .env SECRET is set. Output dir:', OUTPUT_DIR);
 });
