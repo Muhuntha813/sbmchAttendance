@@ -11,10 +11,15 @@ import { CookieJar } from 'tough-cookie';
 import fetchCookie from 'fetch-cookie';
 import * as cheerio from 'cheerio';
 import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 
 dotenv.config();
 
 const app = express();
+
+// Security headers
+app.use(helmet());
+
 app.use(bodyParser.json());
 
 // Rate limiting
