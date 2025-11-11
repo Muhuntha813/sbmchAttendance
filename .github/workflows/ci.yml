@@ -19,20 +19,14 @@ jobs:
         run: npm ci
 
       - name: Lint (root/backend/frontend)
-        run: |
-          if npm run lint --silent; then
-            echo "Lint OK"
-          else
-            echo "Lint issues (non-blocking for now)"
-            npm run lint || true
-          fi
+        run: npm run lint
 
       - name: Run backend tests
-        run: npm test || true
+        run: npm test
         env:
           SECRET: test-secret-for-testing
           NODE_ENV: test
 
       - name: Build frontend
-        run: npm run build || true
+        run: npm run build
 
