@@ -12,6 +12,7 @@ import fetchCookie from 'fetch-cookie';
 import * as cheerio from 'cheerio';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
+import { body, validationResult } from 'express-validator';
 
 dotenv.config();
 
@@ -326,11 +327,25 @@ async function scrapeAttendance({ username, password, fromDate, toDate }) {
   return { studentName, upcomingClasses, attendanceRows };
 }
 
+// Validation middleware
+const validateRequest = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 // --- Routes ---
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', [
+  body('username').isString().trim().notEmpty().withMessage('username is required'),
+  body('password').isString().notEmpty().withMessage('password is required'),
+  body('fromDate').optional().isString().trim(),
+  body('toDate').optional().isString().trim(),
+  validateRequest
+], async (req, res) => {
   try {
     const { username, password, fromDate, toDate } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
 
     // simple rate-limit: 1 request per 30s per user
     const now = Date.now();
