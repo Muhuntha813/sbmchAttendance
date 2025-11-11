@@ -13,6 +13,7 @@ import * as cheerio from 'cheerio';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { body, validationResult } from 'express-validator';
+import logger from './lib/logger.js';
 
 dotenv.config();
 
@@ -64,7 +65,7 @@ app.use((req, res, next) => {
 
 // Enforce SECRET in production
 if (process.env.NODE_ENV === 'production' && !process.env.SECRET) {
-  console.error('FATAL: SECRET env var is required in production');
+  logger.error('FATAL: SECRET env var is required in production');
   process.exit(1);
 }
 
@@ -406,7 +407,7 @@ app.post('/api/login', [
           atomicWrite(latestPath, JSON.stringify(out, null, 2));
           console.log(`[job] saved attendance for ${username} to ${outPath} (${processed.length} subjects, ${out.upcomingClasses.length} upcoming classes)`);
         } catch (err) {
-          console.error('[job] scrape job error for', username, err && err.message ? err.message : err);
+          logger.error('Scrape job error', { username, error: err.message, stack: err.stack });
         } finally {
           status.running = false;
         }
@@ -418,7 +419,7 @@ app.post('/api/login', [
 
     return res.json({ token });
   } catch (err) {
-    console.error('/api/login error:', err && err.message ? err.message : err);
+    logger.error('Login endpoint error', { error: err.message, stack: err.stack });
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -459,7 +460,7 @@ app.get('/api/attendance', async (req, res) => {
     const parsed = JSON.parse(raw);
     return res.json(parsed);
   } catch (err) {
-    console.error('/api/attendance error:', err && err.message ? err.message : err);
+    logger.error('Attendance endpoint error', { error: err.message, stack: err.stack });
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -474,7 +475,7 @@ app.get('/healthz', (req, res) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('[error]', err.message || err);
+  logger.error('Unhandled error', { message: err.message, stack: err.stack, url: req.url, method: req.method });
   if (err.message === 'Not allowed by CORS') {
     return res.status(403).json({ error: 'CORS policy: origin not allowed' });
   }
@@ -494,7 +495,10 @@ export { app };
 // Only start server if not in test environment
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Attendance API server running on http://0.0.0.0:${PORT}`);
-    console.log('Ensure .env SECRET is set. Output dir:', OUTPUT_DIR);
+    logger.info(`Attendance API server running on http://0.0.0.0:${PORT}`);
+    logger.info(`Output directory: ${OUTPUT_DIR}`);
+    if (!process.env.SECRET) {
+      logger.warn('SECRET env var not set - using dev secret. Set SECRET in production!');
+    }
   });
 }
