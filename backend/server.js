@@ -465,13 +465,28 @@ app.get('/api/attendance', async (req, res) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, timestamp: new Date().toISOString() }));
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok', time: Date.now(), timestamp: new Date().toISOString() }));
 
 // health check for Render
 app.get('/healthz', (req, res) => {
-  return res.json({ ok: true, uptime: process.uptime(), time: new Date().toISOString() });
+  return res.status(200).json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() });
 });
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('[error]', err.message || err);
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'CORS policy: origin not allowed' });
+  }
+  res.status(err.status || 500).json({ 
+    error: process.env.NODE_ENV === 'production' ? 'internal_server_error' : err.message 
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Attendance API server running on http://0.0.0.0:${PORT}`);
