@@ -8,6 +8,8 @@
     "build": "vite build frontend",
     "preview": "vite preview frontend",
     "server": "node backend/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint . --ext .js,.jsx --ignore-path .gitignore",
     "lint:fix": "eslint . --ext .js,.jsx --fix --ignore-path .gitignore"
   },
@@ -34,6 +36,8 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "rollup": "^4.53.1",
-    "vite": "^5.4.21"
+    "supertest": "^7.1.4",
+    "vite": "^5.4.21",
+    "vitest": "^4.0.8"
   }
 }

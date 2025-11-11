@@ -488,7 +488,13 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Attendance API server running on http://0.0.0.0:${PORT}`);
-  console.log('Ensure .env SECRET is set. Output dir:', OUTPUT_DIR);
-});
+// Export app for testing
+export { app };
+
+// Only start server if not in test environment
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Attendance API server running on http://0.0.0.0:${PORT}`);
+    console.log('Ensure .env SECRET is set. Output dir:', OUTPUT_DIR);
+  });
+}
