@@ -1,44 +1,42 @@
-# Use lightweight Node 20 image
-FROM node:20-slim
-
-# Install system dependencies for Puppeteer Chromium
-RUN apt-get update && apt-get install -y \
-  chromium \
-  fonts-liberation \
-  libasound2 \
-  libatk-bridge2.0-0 \
-  libatk1.0-0 \
-  libcups2 \
-  libdbus-1-3 \
-  libdrm2 \
-  libgbm1 \
-  libgtk-3-0 \
-  libnspr4 \
-  libnss3 \
-  libx11-xcb1 \
-  libxcomposite1 \
-  libxdamage1 \
-  libxrandr2 \
-  xdg-utils \
-  && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
+# ---- build stage ----
+FROM node:20-alpine AS build
 WORKDIR /app
 
-# Copy all files
-COPY . .
+# install build deps
+COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# copy and build frontend
+COPY frontend/ ./frontend/
+WORKDIR /app/frontend
+RUN npm ci --silent && npm run build
 
-# Set Puppeteer environment vars
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_DOWNLOAD=true
+# ---- production stage ----
+FROM node:20-slim AS prod
+WORKDIR /app
+
+# Create a non-root user for better security
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser || true
+
+# Copy backend
+COPY backend/ ./backend/
+COPY package*.json ./
+
+# Copy built frontend into backend's public folder (if backend serves static files)
+# For now, we'll keep it in a separate location
+COPY --from=build /app/frontend/dist ./frontend/dist
+
+# Install only production deps
+RUN npm ci --production --silent
+
 ENV NODE_ENV=production
 ENV PORT=3000
 
 # Expose port
 EXPOSE 3000
 
-# Start the backend server
+USER appuser
+
+WORKDIR /app
+
+# Use your start script
 CMD ["npm", "run", "server"]
