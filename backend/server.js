@@ -18,11 +18,8 @@ import { initSentry } from './lib/sentry.js';
 
 dotenv.config();
 
-// Initialize Sentry if SENTRY_DSN is provided
-const Sentry = initSentry();
-if (Sentry) {
-  logger.info('Sentry initialized');
-}
+// Initialize Sentry (no-op if SENTRY_DSN not provided)
+const Sentry = initSentry(logger);
 
 const app = express();
 
@@ -68,9 +65,18 @@ app.use(cors({
   credentials: false
 }));
 
-// Log every incoming request for debugging
+// Log every incoming request for debugging (without leaking sensitive payloads)
 app.use((req, res, next) => {
-  console.log(`[req] ${req.method} ${req.url} | body:`, req.body || {});
+  const start = Date.now();
+  const { method, originalUrl } = req;
+  res.on('finish', () => {
+    const durationMs = Date.now() - start;
+    logger.info(`[req] ${method} ${originalUrl}`, {
+      status: res.statusCode,
+      durationMs,
+      ip: req.ip,
+    });
+  });
   next();
 });
 // --- End CORS + Logging ---
@@ -100,6 +106,7 @@ function verifyToken(token) {
   try {
     return jwt.verify(token, SECRET);
   } catch (err) {
+    logger.debug('JWT verification failed', { message: err.message });
     return null;
   }
 }
@@ -333,7 +340,7 @@ async function fetchAttendanceTable(client, { fromDate, toDate, subjectId = '' }
 
 // --- Combined scrape function ---
 async function scrapeAttendance({ username, password, fromDate, toDate }) {
-  console.log('[scrape] scrapeAttendance called for', username);
+  logger.debug('scrapeAttendance invoked', { username });
   const { client } = await loginToLms({ username, password });
   const { studentName, upcomingClasses } = await fetchStudentDashboard(client, username);
   const attendanceRows = await fetchAttendanceTable(client, { fromDate, toDate, subjectId: '' });
@@ -376,7 +383,7 @@ app.post('/api/login', [
       scrapingStatus[username] = status;
       const job = (async () => {
         try {
-          console.log(`[job] starting scrape for ${username}`);
+          logger.info('Scrape job started', { username });
           const normalizedFrom = fromDate || '';
           const normalizedTo = toDate || '';
           const result = await scrapeAttendance({
@@ -417,7 +424,12 @@ app.post('/api/login', [
           atomicWrite(outPath, JSON.stringify(out, null, 2));
           const latestPath = path.join(OUTPUT_DIR, `latest-${username}.json`);
           atomicWrite(latestPath, JSON.stringify(out, null, 2));
-          console.log(`[job] saved attendance for ${username} to ${outPath} (${processed.length} subjects, ${out.upcomingClasses.length} upcoming classes)`);
+          logger.info('Attendance scraped and saved', {
+            username,
+            outputPath: outPath,
+            subjects: processed.length,
+            upcomingClasses: out.upcomingClasses.length,
+          });
         } catch (err) {
           logger.error('Scrape job error', { username, error: err.message, stack: err.stack });
         } finally {
@@ -426,7 +438,7 @@ app.post('/api/login', [
       })();
       status.promise = job;
     } else {
-      console.log('[job] scrape already running for', username);
+      logger.info('Scrape already running for user', { username });
     }
 
     return res.json({ token });
@@ -450,14 +462,14 @@ app.get('/api/attendance', async (req, res) => {
 
     // If scraping is running, wait up to 10s for it to finish
     if (scrapingStatus[username] && scrapingStatus[username].running) {
-      console.log('[api] scrape in progress for', username, 'waiting up to 10s');
+      logger.info('Waiting for active scrape to finish', { username });
       try {
         await Promise.race([
           scrapingStatus[username].promise,
           new Promise((_, rej) => setTimeout(() => rej(new Error('timeout waiting for scrape')), 10000))
         ]);
       } catch (e) {
-        console.log('[api] wait ended:', e.message);
+        logger.warn('Wait for scrape finished with warning', { username, message: e.message });
       }
     }
 
@@ -485,27 +497,23 @@ app.get('/healthz', (req, res) => {
   return res.status(200).json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  logger.error('Unhandled error', { message: err.message, stack: err.stack, url: req.url, method: req.method });
-  
-  // Send to Sentry if initialized
-  if (Sentry) {
-    Sentry.captureException(err);
-  }
-  
-  if (err.message === 'Not allowed by CORS') {
-    return res.status(403).json({ error: 'CORS policy: origin not allowed' });
-  }
-  res.status(err.status || 500).json({ 
-    error: process.env.NODE_ENV === 'production' ? 'internal_server_error' : err.message 
-  });
-});
-
-// Sentry error handler (must be after all routes and error handlers)
+// Sentry error handler should be registered before our fallback handler
 if (Sentry) {
   app.use(Sentry.Handlers.errorHandler());
 }
+
+// Error handling middleware
+app.use((err, req, res, _next) => {
+  logger.error('Unhandled error', { message: err.message, stack: err.stack, url: req.url, method: req.method });
+
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'CORS policy: origin not allowed' });
+  }
+
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' ? 'internal_server_error' : err.message
+  });
+});
 
 // 404 handler
 app.use((req, res) => {
