@@ -19,14 +19,20 @@ jobs:
         run: npm ci
 
       - name: Lint (root/backend/frontend)
-        run: npm run lint
+        run: |
+          set -eo pipefail
+          npm run lint
 
       - name: Run backend tests
-        run: npm test
+        run: |
+          set -eo pipefail
+          npm test
         env:
           SECRET: test-secret-for-testing
           NODE_ENV: test
 
       - name: Build frontend
-        run: npm run build
+        run: |
+          set -eo pipefail
+          npm run build
 
