@@ -1,78 +1,43 @@
-# SBMCH Attendance Dashboard
+# SBMCH Attendance
 
-Simple attendance dashboard for SBMCH students (React + Vite frontend, Express backend).
+Simple attendance dashboard for SBMCH students, powered by an Express backend and a React + Vite frontend.
 
-## Features
+## Setup
 
-- React + Vite frontend
-- Express.js backend with scraping logic
-- JWT auth
-- Rate limiting, Helmet, CORS restrictions, validation
-- `/health` and `/healthz` endpoints
+- Install dependencies: `npm ci`
+- Copy environment template: `cp .env.example .env`
+- Provide required environment variables (`SECRET`, `FRONTEND_URL`, optional `SENTRY_DSN`, etc.) in `.env`
 
-## Quick Setup (Local)
+## Dev
 
-### Install dependencies:
+- Start the backend API: `npm run server`
+- Launch the Vite frontend: `npm run dev`
+- The frontend runs on `http://localhost:5173` by default and proxies requests to the backend.
 
-```bash
-npm ci
-```
+## Test
 
-### Create `.env` from `.env.example`:
+- Run the Vitest suite: `npm test`
+- Use `npm test -- --watch` for watch mode during development.
 
-```bash
-cp .env.example .env
-```
+## Lint
 
-### Development:
+- Check lint status: `npm run lint`
+- Auto-fix where possible: `npm run lint:fix`
 
-- **Backend**: `npm run server` (or `node backend/server.js`)
-- **Frontend**: `npm run dev`
+## Deployment (Render)
 
-### Tests & Lint:
+### Backend (Web Service)
 
-```bash
-npm test
-npm run lint
-```
+- **Build Command:** `npm ci`
+- **Start Command:** `npm run server`
+- **Environment Variables:** `SECRET`, `FRONTEND_URL`, `NODE_ENV=production`, optional `SENTRY_DSN`, `LOG_LEVEL`, others as needed.
 
-## Deployment (Render Example)
+### Frontend (Static Site)
 
-### Backend (Render - Web Service)
+- **Root Directory:** `frontend`
+- **Build Command:** `npm ci && npm run build`
+- **Publish Directory:** `dist`
+- **Build Env:** `VITE_API=https://<your-backend-service>.onrender.com`
 
-- **Build Command**: `npm ci`
-- **Start Command**: `npm run server`
-
-**Env vars to set on Render:**
-
-- `SECRET` (min 32 chars)
-- `PORT` (optional, default 3000)
-- `NODE_ENV=production`
-- `FRONTEND_URL` (comma-separated allowed origins)
-- `DATABASE_URL` (if using a managed DB)
-- `SENTRY_DSN` (optional)
-
-### Frontend (Render - Static Site)
-
-- **Root Directory**: `frontend`
-- **Build Command**: `npm ci && npm run build`
-- **Publish Directory**: `dist`
-- **Build-time env**: `VITE_API=https://<your-backend>.onrender.com`
-
-## Docker (Local Test)
-
-Build and run:
-
-```bash
-docker build -t sbmch-attendance .
-docker run -e SECRET=your-jwt-secret -p 3000:3000 sbmch-attendance
-```
-
-## Logging & Monitoring
-
-This project includes Winston for structured logs. You can enable Sentry by providing `SENTRY_DSN` in your environment.
-
-## Contributing
-
-Create PRs against main. CI runs build, lint, tests.
+After deploying, confirm both services share the same `SECRET` and allowed origins so the dashboard can authenticate against the API.
 
