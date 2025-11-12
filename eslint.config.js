@@ -49,9 +49,6 @@ export default [
         },
       },
     },
-    env: {
-      browser: true,
-    },
     settings: {
       react: {
         version: 'detect',
@@ -64,6 +61,11 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
+  },
+  // Frontend files override to set browser env
+  {
+    files: ['frontend/**/*.{js,jsx,ts,tsx}'],
+    env: { browser: true },
   },
   {
     ignores: ['node_modules/', 'dist/', 'build/', 'output/', 'frontend/dist/**', '*.log', '.env*'],
