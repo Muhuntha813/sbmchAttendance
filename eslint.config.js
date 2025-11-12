@@ -42,6 +42,11 @@ export default [
         MutationObserver: 'readonly',
         performance: 'readonly',
         localStorage: 'readonly',
+        sessionStorage: 'readonly',
+        navigator: 'readonly',
+        location: 'readonly',
+        history: 'readonly',
+        matchMedia: 'readonly',
       },
       parserOptions: {
         ecmaFeatures: {
@@ -61,11 +66,6 @@ export default [
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
-  },
-  // Frontend files override to set browser env
-  {
-    files: ['frontend/**/*.{js,jsx,ts,tsx}'],
-    env: { browser: true },
   },
   {
     ignores: ['node_modules/', 'dist/', 'build/', 'output/', 'frontend/dist/**', '*.log', '.env*'],
