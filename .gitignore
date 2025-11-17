@@ -7,3 +7,10 @@ output
 .DS_Store
 .env.local
 .env.*.local
+.vscode
+.idea
+*.swp
+*.swo
+*~
+backend/output
+frontend/dist
