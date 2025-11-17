@@ -1,0 +1,171 @@
+{
+  "info": {
+    "name": "SBMCH Attendance Payment Flow",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "A) Login (Create User + Trial)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"student_id\": \"std1582\",\n  \"password\": \"your_password\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/auth/login",
+          "host": ["{{base_url}}"],
+          "path": ["api", "auth", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    var jsonData = pm.response.json();",
+              "    pm.environment.set('auth_token', jsonData.token);",
+              "    pm.environment.set('user_id', jsonData.user.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "B) Get Attendance (Active Trial)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/attendance",
+          "host": ["{{base_url}}"],
+          "path": ["api", "attendance"]
+        }
+      }
+    },
+    {
+      "name": "C) Get Attendance (Expired Trial)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/attendance",
+          "host": ["{{base_url}}"],
+          "path": ["api", "attendance"]
+        }
+      }
+    },
+    {
+      "name": "D) Create Subscription",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"plan_id\": \"{{razorpay_plan_id}}\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/subscriptions/create",
+          "host": ["{{base_url}}"],
+          "path": ["api", "subscriptions", "create"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    var jsonData = pm.response.json();",
+              "    pm.environment.set('subscription_id', jsonData.subscription_id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "E) Razorpay Webhook (Subscription Activated)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-razorpay-signature",
+            "value": "{{webhook_signature}}",
+            "description": "Compute HMAC SHA256 of body with RAZORPAY_WEBHOOK_SECRET"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event\": \"subscription.activated\",\n  \"payload\": {\n    \"subscription\": {\n      \"entity\": {\n        \"id\": \"{{subscription_id}}\",\n        \"status\": \"active\",\n        \"notes\": {\n          \"user_id\": \"{{user_id}}\"\n        }\n      }\n    }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/webhook/razorpay",
+          "host": ["{{base_url}}"],
+          "path": ["api", "webhook", "razorpay"]
+        }
+      }
+    },
+    {
+      "name": "F) Get Attendance (After Subscription)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/attendance",
+          "host": ["{{base_url}}"],
+          "path": ["api", "attendance"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "razorpay_plan_id",
+      "value": "plan_test123"
+    }
+  ]
+}
+
+
+

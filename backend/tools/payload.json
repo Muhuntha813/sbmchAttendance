@@ -1,0 +1,16 @@
+{
+  "event": "subscription.activated",
+  "payload": {
+    "subscription": {
+      "entity": {
+        "id": "sub_test123",
+        "status": "active",
+        "plan_id": "plan_test123",
+        "notes": {
+          "user_id": "1"
+        }
+      }
+    }
+  }
+}
+

@@ -46,8 +46,53 @@
         }
       };
     </script>
+    <style>
+      /* Theme background and accent variables */
+      html, body { height: 100%; overflow-x: hidden; }
+      body { overscroll-behavior-y: none; }
+      body {
+        --accent-1: #22d3ee;
+        --accent-2: #6366f1;
+        background: linear-gradient(135deg, #0f172a, #1e293b 60%, #0b1020);
+      }
+      /* Base text color per theme for better contrast */
+      body.theme-cool, body.theme-midnight { color: #e5e7eb; }
+      body.theme-daylight { color: #0f172a; }
+
+      body.theme-cool {
+        --accent-1: #22d3ee;
+        --accent-2: #6366f1;
+        background: linear-gradient(135deg, #0f172a, #1e293b 60%, #0b1020) !important;
+      }
+      body.theme-midnight {
+        --accent-1: #8b5cf6;
+        --accent-2: #0ea5e9;
+        background: linear-gradient(135deg, #000000, #0f172a 55%, #1e1b4b) !important;
+      }
+      body.theme-daylight {
+        /* Add a touch of sunset yellow to the palette */
+        --accent-1: #FBBF24; /* amber-400 */
+        --accent-2: #FB923C; /* orange-400 */
+        background: linear-gradient(
+          135deg,
+          #fff7ed,
+          #fef3c7 30%, /* warm, subtle yellow */
+          #e0f2fe 65%,
+          #f8fafc 100%
+        ) !important;
+      }
+
+      /* Daylight Bliss: strengthen contrast of common utility classes */
+      .theme-daylight .text-white\/90 { color: #0f172a !important; }
+      .theme-daylight .text-white\/80 { color: #1f2937 !important; }
+      .theme-daylight .text-white\/70 { color: rgba(15,23,42,0.8) !important; }
+      .theme-daylight .text-white\/60 { color: rgba(15,23,42,0.7) !important; }
+      .theme-daylight .text-gray-200 { color: #334155 !important; }
+      .theme-daylight .bg-white\/10 { background-color: rgba(255,255,255,0.72) !important; }
+      .theme-daylight .border-white\/10 { border-color: rgba(2,6,23,0.12) !important; }
+    </style>
   </head>
-  <body class="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-950 text-slate-200 antialiased">
+  <body class="min-h-screen antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

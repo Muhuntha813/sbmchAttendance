@@ -8,7 +8,7 @@ COPY package*.json ./
 # copy and build frontend
 COPY frontend/ ./frontend/
 WORKDIR /app/frontend
-RUN npm ci --silent && npm run build
+RUN npm ci && npm run build
 
 # ---- production stage ----
 FROM node:20-slim AS prod

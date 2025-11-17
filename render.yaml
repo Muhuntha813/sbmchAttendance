@@ -1,0 +1,105 @@
+services:
+  - type: web
+    name: sbmch-attendance-api
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run server
+    healthCheckPath: /health
+    envVars:
+      # ============================================
+      # REQUIRED - Must be set manually in Render dashboard
+      # ============================================
+      - key: DATABASE_URL
+        sync: false
+        value: # REQUIRED: postgresql://postgres:password@db.xxxxx.supabase.co:5432/postgres
+      - key: SECRET
+        sync: false
+        value: # REQUIRED: Generate with: openssl rand -base64 32 (32+ characters)
+      - key: FRONTEND_URL
+        sync: false
+        value: # REQUIRED: Set after frontend deploy: https://your-app.vercel.app
+      - key: NODE_ENV
+        value: production
+      
+      # ============================================
+      # OPTIONAL - Payment Integration (Razorpay)
+      # Note: Optional - only set if using payment features
+      # ============================================
+      - key: RAZORPAY_KEY_ID
+        sync: false
+        value: # Optional: rzp_test_xxxxx or rzp_live_xxxxx
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+        value: # Optional: Your Razorpay key secret
+      - key: RAZORPAY_PLAN_ID
+        sync: false
+        value: # Optional: plan_xxxxx
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+        value: # Optional: Webhook secret from Razorpay dashboard
+      
+      # ============================================
+      # OPTIONAL - Error Tracking (Sentry)
+      # ============================================
+      - key: SENTRY_DSN
+        sync: false
+        value: # Optional: https://xxxxx@xxxxx.ingest.sentry.io/xxxxx
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "1.0"  # Optional: Default 1.0 (100% of transactions)
+      
+      # ============================================
+      # OPTIONAL - Scraper Configuration
+      # ============================================
+      - key: SCRAPE_WAIT_MS
+        value: "12000"  # Default: 12 seconds wait for scraper during login
+      
+      # ============================================
+      # OPTIONAL - LMS Configuration (usually not needed)
+      # ============================================
+      - key: LMS_TIMEOUT_MS
+        value: "10000"  # Default: 10 seconds timeout for LMS requests
+      - key: DASHBOARD_URL
+        sync: false
+        value: # Optional: Override default dashboard URL
+      - key: ATTENDANCE_PAGE_URL
+        sync: false
+        value: # Optional: Override default attendance page URL
+      - key: ATTENDANCE_API_URL
+        sync: false
+        value: # Optional: Override default attendance API URL
+      
+      # ============================================
+      # OPTIONAL - Email Configuration (for notifications)
+      # ============================================
+      - key: SMTP_HOST
+        sync: false
+        value: # Optional: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"  # Optional: Default 587
+      - key: SMTP_USER
+        sync: false
+        value: # Optional: Your email address
+      - key: SMTP_PASSWORD
+        sync: false
+        value: # Optional: Your email password or app password
+      - key: SMTP_FROM
+        sync: false
+        value: # Optional: From email address
+      
+      # ============================================
+      # OPTIONAL - Admin & Logging
+      # ============================================
+      - key: ADMIN_API_KEY
+        sync: false
+        value: # Optional: API key for admin endpoints
+      - key: LOG_LEVEL
+        value: "info"  # Optional: debug, info, warn, error (default: info in prod)
+      
+      # ============================================
+      # OPTIONAL - Server Configuration
+      # ============================================
+      - key: PORT
+        value: "3000"  # Render will override this automatically, but default is 3000
+
