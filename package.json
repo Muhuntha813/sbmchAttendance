@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite frontend --host 0.0.0.0",
-    "build": "vite build frontend",
+    "build": "vite build",
     "preview": "vite preview frontend",
     "server": "node backend/server.js",
     "test": "vitest run",
