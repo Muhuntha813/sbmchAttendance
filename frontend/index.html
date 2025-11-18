@@ -13,51 +13,7 @@
               gtag('config', 'G-9D4Q2FZH54');
     </script>
 
-    <!-- Tailwind CSS (CDN). To customize, adjust config below. -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      // Tailwind config: dark mode, custom keyframes & animations used by the app
-      // Wrap in try-catch and check if tailwind exists to prevent errors
-      if (typeof tailwind !== 'undefined') {
-        tailwind.config = {
-          darkMode: 'class',
-          theme: {
-            extend: {
-              colors: {
-                glass: {
-                  light: 'rgba(255,255,255,0.55)',
-                  dark: 'rgba(30,41,59,0.55)'
-                }
-              },
-              keyframes: {
-                fadeInLeft: {
-                  '0%': { opacity: '0', transform: 'translateX(-16px)' },
-                  '100%': { opacity: '1', transform: 'translateX(0)' }
-                },
-                typeIn: {
-                  '0%': { opacity: '0' },
-                  '100%': { opacity: '1' }
-                },
-                cardEnter: {
-                  '0%': { opacity: '0', transform: 'translateY(12px)' },
-                  '100%': { opacity: '1', transform: 'translateY(0)' }
-                },
-                shimmer: {
-                  '0%': { backgroundPosition: '-200% 0' },
-                  '100%': { backgroundPosition: '200% 0' }
-                }
-              },
-              animation: {
-                'fade-in-left': 'fadeInLeft 600ms ease-out both',
-                'type-in': 'typeIn 600ms ease-out both',
-                'card-enter': 'cardEnter 600ms ease-out both',
-                shimmer: 'shimmer 1.8s linear infinite'
-              }
-            }
-          }
-        };
-      }
-    </script>
+    <!-- Tailwind CSS is now compiled and imported via main.jsx -->
     <style>
       /* Theme background and accent variables */
       html, body { height: 100%; overflow-x: hidden; }
