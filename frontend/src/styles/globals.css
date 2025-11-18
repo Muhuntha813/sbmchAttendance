@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* minimal fallback for safety (keeps layout readable if CSS blocked) */
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+.container { padding: 12px; }
+.card { padding: 10px; border-radius: 8px; }
+
