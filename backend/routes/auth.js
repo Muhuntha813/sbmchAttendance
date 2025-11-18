@@ -4,6 +4,8 @@ import axios from 'axios'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { query } from '../src/db.js'
+import logger from '../lib/logger.js'
+import { triggerScrape } from '../src/services/scraperService.js'
 
 const router = express.Router()
 
@@ -42,6 +44,17 @@ router.post('/login', loginLimiter, async (req, res) => {
       const ok = await bcrypt.compare(password, existing.password_hash)
       if (!ok) return res.status(401).json({ error: 'invalid_credentials' })
       const token = signJwt({ userId: existing.id, student_id: existing.student_id })
+      
+      // CRITICAL FIX: Always trigger scraping for existing users too
+      // Run in background - don't block response
+      triggerScrape(existing.student_id, password).catch(err => {
+        logger.error('[auth/login] [scrape_error] Background scrape failed for existing user', { 
+          username: existing.student_id, 
+          error: err.message, 
+          stack: err.stack 
+        })
+      })
+      
       return res.json({
         token,
         user: {
@@ -54,37 +67,75 @@ router.post('/login', loginLimiter, async (req, res) => {
       })
     }
 
-    // No user: must call scraper to verify existence
-    if (!SCRAPER_URL) {
-      return res.status(502).json({ error: 'scraper_unavailable' })
+    // No user: create user automatically (scraper will verify credentials)
+    // If SCRAPER_URL is available, use it for verification; otherwise create user and let scraper verify
+    let name = null
+    let scraperExists = false
+    
+    if (SCRAPER_URL) {
+      try {
+        const resp = await axios.get(`${SCRAPER_URL}/${encodeURIComponent(student_id)}`, { timeout: SCRAPER_TIMEOUT_MS })
+        const data = resp?.data || {}
+        if (data && typeof data.found === 'boolean') {
+          if (data.found === false) {
+            await query('INSERT INTO scraper_failures (student_id, ip) VALUES ($1, $2)', [student_id, req.ip || null])
+            return res.status(404).json({ error: 'student_not_found' })
+          }
+          name = data.name || null
+          scraperExists = true
+        }
+      } catch (err) {
+        // If scraper verification fails, still create user and let attendance scraper verify
+        logger.warn('[auth/login] Scraper verification failed, creating user anyway', { 
+          username: student_id, 
+          error: err.message 
+        })
+      }
     }
-    try {
-      const resp = await axios.get(`${SCRAPER_URL}/${encodeURIComponent(student_id)}`, { timeout: SCRAPER_TIMEOUT_MS })
-      const data = resp?.data || {}
-      if (!data || typeof data.found !== 'boolean') {
-        return res.status(502).json({ error: 'scraper_unavailable' })
-      }
-      if (data.found === false) {
-        await query('INSERT INTO scraper_failures (student_id, ip) VALUES ($1, $2)', [student_id, req.ip || null])
-        return res.status(404).json({ error: 'student_not_found' })
-      }
 
-      // found === true: create user + start trial
-      const name = data.name || null
-      const hash = await bcrypt.hash(password, 10)
-      const insertSql = `
-        INSERT INTO users (student_id, password_hash, name, scraper_checked_at, scraper_exists, trial_started_at, trial_expires_at, subscription_status, created_at)
-        VALUES ($1, $2, $3, now(), true, now(), now() + interval '5 days', 'trial', now())
-        RETURNING id, student_id, name, trial_expires_at, subscription_status
-      `
-      const { rows: created } = await query(insertSql, [student_id, hash, name])
-      const user = created[0]
-      const token = signJwt({ userId: user.id, student_id: user.student_id })
-      return res.json({ token, user })
+    // Create user with ON CONFLICT DO NOTHING (as per requirements)
+    const hash = await bcrypt.hash(password, 10)
+    const insertSql = `
+      INSERT INTO users (student_id, password_hash, name, scraper_checked_at, scraper_exists, trial_started_at, trial_expires_at, subscription_status, created_at)
+      VALUES ($1, $2, $3, now(), $4, now(), now() + interval '5 days', 'trial', now())
+      ON CONFLICT (student_id) DO NOTHING
+      RETURNING id, student_id, name, trial_expires_at, subscription_status
+    `
+    let user
+    try {
+      const { rows: created } = await query(insertSql, [student_id, hash, name, scraperExists])
+      if (created.length > 0) {
+        user = created[0]
+      } else {
+        // User already exists (race condition), fetch it
+        const { rows: existingRows } = await query(
+          'SELECT id, student_id, name, trial_expires_at, subscription_status FROM users WHERE student_id = $1 LIMIT 1',
+          [student_id]
+        )
+        user = existingRows[0]
+      }
     } catch (err) {
-      // Scraper errors should not create users
-      return res.status(502).json({ error: 'scraper_unavailable' })
+      logger.error('[auth/login] Error creating user', { 
+        username: student_id, 
+        error: err.message, 
+        stack: err.stack 
+      })
+      return res.status(500).json({ error: 'Internal server error' })
     }
+    
+    const token = signJwt({ userId: user.id, student_id: user.student_id })
+    
+    // CRITICAL FIX: Always trigger scraping after user creation/login
+    // Run in background - don't block response
+    triggerScrape(student_id, password).catch(err => {
+      logger.error('[auth/login] [scrape_error] Background scrape failed for new user', { 
+        username: student_id, 
+        error: err.message, 
+        stack: err.stack 
+      })
+    })
+    
+    return res.json({ token, user })
   } catch (err) {
     if (err && err.message === 'server_misconfigured') {
       return res.status(500).json({ error: 'server_misconfigured' })
