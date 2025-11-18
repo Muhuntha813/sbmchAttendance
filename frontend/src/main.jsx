@@ -1,25 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
-import './styles/globals.css'
-
-// Service worker unregister (temporary migration to force fresh CSS fetch)
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs => {
-    regs.forEach(reg => reg.unregister());
-  }).catch(()=>{});
-}
-
-// CSS load monitor (optional but useful for debugging)
-fetch('/css/tailwind.css', { method: 'HEAD', cache: 'no-store' })
-  .then(res => {
-    if (!res.ok) {
-      console.error('Tailwind CSS fetch failed', res.status);
-    }
-  })
-  .catch(err => {
-    console.error('Tailwind CSS fetch error', err);
-  });
 
 // Initialize 3-theme system before rendering
 const THEME_KEY = 'ATT_THEME'
