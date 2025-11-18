@@ -21,7 +21,6 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { body, validationResult } from 'express-validator';
 import logger from './lib/logger.js';
-import { initSentry } from './lib/sentry.js';
 import Razorpay from 'razorpay';
 import authRouter from './routes/auth.js';
 import adminRouter from './routes/admin.js';
@@ -30,17 +29,8 @@ import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { createCheckAccess } from './src/middleware/checkAccess.js';
-import { scrapingStatus } from './src/services/scraperService.js';
-
-// Initialize Sentry (no-op if SENTRY_DSN not provided)
-const Sentry = initSentry(logger);
 
 const app = express();
-
-// Sentry request handler (must be before all routes)
-if (Sentry) {
-  app.use(Sentry.Handlers.requestHandler());
-}
 
 // Security headers
 app.use(helmet());
@@ -181,7 +171,7 @@ if (process.env.NODE_ENV === 'production') {
 
 // --- Simple in-memory rate limiter & scrape trackers ---
 const lastLoginAt = {}; // username -> timestamp ms
-// scrapingStatus is imported from scraperService (shared between /api/login and /api/auth/login)
+const scrapingStatus = {}; // username -> { running: boolean, promise: Promise }
 
 // ---- Subscriptions / DB ----
 const pool = new Pool({
@@ -1428,11 +1418,6 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok', time: Date
 app.get('/healthz', (req, res) => {
   return res.status(200).json({ status: 'ok', uptime: process.uptime(), time: new Date().toISOString() });
 });
-
-// Sentry error handler should be registered before our fallback handler
-if (Sentry) {
-  app.use(Sentry.Handlers.errorHandler());
-}
 
 // Error handling middleware
 app.use((err, req, res, _next) => {
