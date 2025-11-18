@@ -329,6 +329,34 @@ export async function triggerScrape(studentId, password, fromDate, toDate) {
       toDate: normalizedTo
     })
 
+    const studentName = result.studentName || username
+
+    // Update user's name in users table after successful LMS login and dashboard fetch
+    // This ensures users.name is populated even if it was NULL during initial creation
+    if (studentName && studentName.trim()) {
+      try {
+        const dbPool = getPool()
+        const updateResult = await dbPool.query(
+          'UPDATE users SET name = $1 WHERE student_id = $2',
+          [studentName.trim(), username]
+        )
+        if (updateResult.rowCount > 0) {
+          logger.info('[scraper] Updated user name for <student_id>: <name>', { 
+            student_id: username, 
+            name: studentName.trim() 
+          })
+        }
+        // If rowCount is 0, name already matches or user doesn't exist - no error, just skip log
+      } catch (updateErr) {
+        // Don't fail scraping if name update fails - log and continue
+        logger.warn('[scraper] Failed to update user name', { 
+          student_id: username, 
+          name: studentName,
+          error: updateErr.message 
+        })
+      }
+    }
+
     const processed = (result.attendanceRows || []).map(row => {
       const present = typeof row.present === 'number' ? row.present : (row.sessionsCompleted ?? 0)
       const total = typeof row.total === 'number' ? row.total : (row.totalSessions ?? 0)
@@ -346,8 +374,6 @@ export async function triggerScrape(studentId, password, fromDate, toDate) {
         required
       }
     })
-
-    const studentName = result.studentName || username
 
     logger.info('[scraperService] Starting database save for scraped data', { 
       username, 
