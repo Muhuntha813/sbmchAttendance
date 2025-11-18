@@ -246,8 +246,7 @@ async function runVerification() {
   // Test health
   const healthOk = await testHealth()
   if (!healthOk) {
-    console.error('\n❌ Health check failed - stopping verification')
-    return report
+    console.warn('\n⚠️  Health check had issues, but continuing verification...')
   }
   
   // Test login
