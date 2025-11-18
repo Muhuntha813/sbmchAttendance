@@ -652,13 +652,15 @@ export default function AttendanceApp() {
     </div>
   )
 
+  // WhatsApp Support Group Link
+  const WHATSAPP_GROUP_LINK = 'https://chat.whatsapp.com/CCQEaQo92Tk8ky7XcH4xyA'
+  
+  const handleWhatsAppSupport = () => {
+    window.open(WHATSAPP_GROUP_LINK, '_blank')
+  }
+
   // About Page Component
   const AboutPage = React.memo(() => {
-    const handleWhatsAppSupport = () => {
-      const supportNumber = '917845689813' // +91 78456 89813
-      const message = encodeURIComponent('Hello, I need support with the SBMCH Attendance website.')
-      window.open(`https://wa.me/${supportNumber}?text=${message}`, '_blank')
-    }
 
     return (
       <Container>
@@ -843,7 +845,7 @@ export default function AttendanceApp() {
                     'mt-2 text-xs text-center',
                     isDarkTheme ? 'text-white/50' : 'text-slate-500'
                   )}>
-                    (You will be redirected to WhatsApp chat with the support number.)
+                    (You will be redirected to the WhatsApp support group.)
                   </p>
                 </div>
               </div>
@@ -1648,8 +1650,8 @@ export default function AttendanceApp() {
           </div>
         )}
       </div>
-      {/* About Button */}
-      <div className="mt-8 text-center">
+      {/* About & Support Buttons */}
+      <div className="mt-8 text-center space-x-4">
         <button
           type="button"
           onClick={() => setView('about')}
@@ -1661,6 +1663,19 @@ export default function AttendanceApp() {
           )}
         >
           About
+        </button>
+        <span className={isDarkTheme ? 'text-white/40' : 'text-slate-400'}>|</span>
+        <button
+          type="button"
+          onClick={handleWhatsAppSupport}
+          className={classNames(
+            'text-sm underline transition-colors',
+            isDarkTheme
+              ? 'text-white/60 hover:text-white/80'
+              : 'text-slate-600 hover:text-slate-800'
+          )}
+        >
+          Support
         </button>
       </div>
     </Container>
@@ -1880,8 +1895,8 @@ export default function AttendanceApp() {
                   {authLoading ? 'Signing In…' : 'Sign In'}
                 </button>
               </form>
-              {/* About Button */}
-              <div className="mt-6 text-center">
+              {/* About & Support Buttons */}
+              <div className="mt-6 text-center space-x-4">
                 <button
                   type="button"
                   onClick={() => setView('about')}
@@ -1893,6 +1908,19 @@ export default function AttendanceApp() {
                   )}
                 >
                   About
+                </button>
+                <span className={isDarkTheme ? 'text-white/40' : 'text-slate-400'}>|</span>
+                <button
+                  type="button"
+                  onClick={handleWhatsAppSupport}
+                  className={classNames(
+                    'text-sm underline transition-colors',
+                    isDarkTheme
+                      ? 'text-white/60 hover:text-white/80'
+                      : 'text-slate-600 hover:text-slate-800'
+                  )}
+                >
+                  Support
                 </button>
               </div>
               </>
