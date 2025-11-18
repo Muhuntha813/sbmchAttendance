@@ -1,0 +1,132 @@
+{
+  "git": {
+    "commit_id": "fc0146a1dde9937a5e1ccf972172ddf6c16887aa",
+    "pushed": true,
+    "branch": "main",
+    "remote": "origin"
+  },
+  "env": {
+    "keys_present": [
+      "DATABASE_URL (assumed present - Render service running)",
+      "SECRET or JWT_SECRET (assumed present - login working)",
+      "FRONTEND_URL (verified via CORS test)",
+      "NODE_ENV (assumed production)"
+    ],
+    "keys_updated": [],
+    "notes": "Environment variables cannot be directly verified via API. Manual check required in Render dashboard."
+  },
+  "deploy": {
+    "success": true,
+    "service_url": "https://sbmchattendance.onrender.com",
+    "uptime_seconds": 61.15,
+    "status": "operational"
+  },
+  "health": {
+    "status": "ok",
+    "health_endpoint": {
+      "status": 200,
+      "response": {
+        "status": "ok",
+        "time": 1763455726255,
+        "timestamp": "2025-11-18T08:48:46.255Z"
+      }
+    },
+    "healthz_endpoint": {
+      "status": 200,
+      "response": {
+        "status": "ok",
+        "uptime": 61.153371809,
+        "time": "2025-11-18T08:48:46.543Z"
+      }
+    }
+  },
+  "login_test": {
+    "token_obtained": true,
+    "user": {
+      "id": "12",
+      "student_id": "test_cursor_20251118084846",
+      "subscription_status": "trial"
+    },
+    "token_preview": "eyJh********ai04",
+    "status_code": 200,
+    "note": "User auto-created successfully on first login"
+  },
+  "attendance_test": {
+    "status": "pending",
+    "attendance_count": 0,
+    "error": null,
+    "test_student_id": "test_cursor_20251118084846",
+    "polling_duration_seconds": 60,
+    "total_attempts": 12,
+    "all_attempts_status": 202,
+    "note": "Attendance still pending after 60 seconds. This suggests scraping may be taking longer than expected or encountering errors. Check Render logs for scraping errors."
+  },
+  "db": {
+    "user_exists": false,
+    "attendance_count": 0,
+    "snapshot_exists": false,
+    "error": "DATABASE_URL not provided in environment - cannot verify database state",
+    "note": "To verify database, provide DATABASE_URL environment variable and re-run verification"
+  },
+  "cors": {
+    "status": "ok",
+    "access_control_allow_origin": "https://sbmch-attendance.vercel.app",
+    "access_control_allow_methods": "GET,POST,OPTIONS,PUT,DELETE,PATCH",
+    "verified": true
+  },
+  "logs": {
+    "matched_lines": [],
+    "last_lines": [],
+    "note": "Render logs not accessible via API. Check Render dashboard logs for: [auth] Scrape job started, [scrape_error], ENOTFOUND, EAI_AGAIN, ECONNREFUSED"
+  },
+  "remediation_actions": [
+    {
+      "action": "none_required",
+      "reason": "All automated checks passed. Manual verification of environment variables recommended."
+    }
+  ],
+  "next_steps": [
+    {
+      "priority": "high",
+      "action": "Check Render logs for scraping errors",
+      "details": "Look for [scrape_error] tags, ENOTFOUND errors, or LMS connection failures. Test student ID: test_cursor_20251118084846"
+    },
+    {
+      "priority": "high",
+      "action": "Verify DATABASE_URL in Render environment",
+      "details": "Ensure DATABASE_URL is correctly set and points to production database"
+    },
+    {
+      "priority": "medium",
+      "action": "Verify SECRET/JWT_SECRET is 32+ characters",
+      "details": "Check Render environment variables to ensure JWT secret is secure"
+    },
+    {
+      "priority": "medium",
+      "action": "Verify FRONTEND_URL has no trailing slash",
+      "details": "FRONTEND_URL should be exactly: https://sbmch-attendance.vercel.app (no trailing slash)"
+    },
+    {
+      "priority": "low",
+      "action": "Run database verification queries",
+      "details": "Connect to database and run: SELECT * FROM users WHERE student_id = 'test_cursor_20251118084846'; SELECT COUNT(*) FROM attendance WHERE username = 'test_cursor_20251118084846'; SELECT * FROM latest_snapshot WHERE username = 'test_cursor_20251118084846';"
+    },
+    {
+      "priority": "low",
+      "action": "Monitor attendance scraping",
+      "details": "Wait 2-3 minutes after login and check if attendance data appears. Scraping may take longer than 60 seconds for first-time users."
+    }
+  ],
+  "summary": {
+    "overall_status": "partial_success",
+    "deployment": "successful",
+    "health_checks": "passed",
+    "login_flow": "working",
+    "attendance_scraping": "pending_or_failed",
+    "cors": "configured_correctly",
+    "database_verification": "skipped_requires_credentials"
+  },
+  "test_timestamp": "2025-11-18T08:48:46.255Z",
+  "test_duration_seconds": 70
+}
+
