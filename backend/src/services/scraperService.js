@@ -5,11 +5,24 @@ import { CookieJar } from 'tough-cookie'
 import fetchCookie from 'fetch-cookie'
 import * as cheerio from 'cheerio'
 
-const DB_URL = process.env.DATABASE_URL || ''
-const pool = new Pool({
-  connectionString: DB_URL,
-  ssl: DB_URL.includes('supabase') ? { rejectUnauthorized: false } : false
-})
+// Lazy pool initialization - only create when first needed
+let pool = null
+
+function getPool() {
+  if (!pool) {
+    const DB_URL = process.env.DATABASE_URL || ''
+    if (!DB_URL) {
+      throw new Error('DATABASE_URL not configured in scraperService')
+    }
+    pool = new Pool({
+      connectionString: DB_URL,
+      ssl: DB_URL.includes('supabase') ? { rejectUnauthorized: false } : false,
+      connectionTimeoutMillis: 10000
+    })
+    logger.info('[scraperService] Database pool initialized')
+  }
+  return pool
+}
 
 const LMS_BASE = 'https://sbmchlms.com/lms'
 const LOGIN_URL = `${LMS_BASE}/site/userlogin`
@@ -59,6 +72,7 @@ function computeCanMiss(present, total) {
 }
 
 async function loginToLms({ username, password }) {
+  logger.info('[scraperService] Starting LMS login', { username })
   const jar = new CookieJar()
   const fetchWithCookies = fetchCookie(fetch, jar)
   const client = (url, options = {}) => {
@@ -66,9 +80,23 @@ async function loginToLms({ username, password }) {
     return fetchWithCookies(url, { ...options, headers })
   }
 
-  const loginPage = await client(LOGIN_URL, { method: 'GET' })
-  if (!loginPage.ok) {
-    throw new Error(`Login page request failed (${loginPage.status})`)
+  let loginPage
+  try {
+    loginPage = await client(LOGIN_URL, { method: 'GET' })
+    if (!loginPage.ok) {
+      throw new Error(`Login page request failed (${loginPage.status})`)
+    }
+  } catch (err) {
+    if (err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN' || err.code === 'ECONNREFUSED') {
+      logger.error('[scraperService] LMS host not reachable', { 
+        username, 
+        error: err.message, 
+        code: err.code,
+        host: LOGIN_URL 
+      })
+      throw new Error(`LMS host not reachable: ${err.message}`)
+    }
+    throw err
   }
   const loginHtml = await loginPage.text()
   const $login = cheerio.load(loginHtml)
@@ -104,10 +132,12 @@ async function loginToLms({ username, password }) {
   } else {
     const body = await loginResponse.text()
     if (!loginResponse.ok || /invalid username|password/i.test(body)) {
+      logger.error('[scraperService] LMS login rejected credentials', { username, status: loginResponse.status })
       throw new Error('Login failed: the LMS rejected the credentials or returned an unexpected response.')
     }
   }
 
+  logger.info('[scraperService] LMS login successful', { username })
   return { client }
 }
 
@@ -249,16 +279,40 @@ async function fetchAttendanceTable(client, { fromDate, toDate, subjectId = '' }
 }
 
 async function scrapeAttendance({ username, password, fromDate, toDate }) {
-  logger.debug('scrapeAttendance invoked', { username })
-  const { client } = await loginToLms({ username, password })
-  const { studentName, upcomingClasses } = await fetchStudentDashboard(client, username)
-  const attendanceRows = await fetchAttendanceTable(client, { fromDate, toDate, subjectId: '' })
-  return { studentName, upcomingClasses, attendanceRows }
+  logger.info('[scraperService] scrapeAttendance invoked', { username })
+  try {
+    const { client } = await loginToLms({ username, password })
+    logger.info('[scraperService] Fetching student dashboard', { username })
+    const { studentName, upcomingClasses } = await fetchStudentDashboard(client, username)
+    logger.info('[scraperService] Fetching attendance table', { username })
+    const attendanceRows = await fetchAttendanceTable(client, { fromDate, toDate, subjectId: '' })
+    logger.info('[scraperService] Scraping completed', { 
+      username, 
+      attendanceRowsCount: attendanceRows.length,
+      upcomingClassesCount: upcomingClasses.length 
+    })
+    return { studentName, upcomingClasses, attendanceRows }
+  } catch (err) {
+    logger.error('[scraperService] scrapeAttendance failed', { 
+      username, 
+      error: err.message, 
+      stack: err.stack,
+      code: err.code 
+    })
+    throw err
+  }
 }
 
 export async function triggerScrape(studentId, password, fromDate, toDate) {
   const username = studentId
   logger.info('[auth] Scrape job started', { username: studentId })
+  
+  // Validate DATABASE_URL before starting
+  if (!process.env.DATABASE_URL) {
+    const error = new Error('DATABASE_URL not configured - cannot save attendance data')
+    logger.error('[scrape_error]', { username: studentId, error: error.message })
+    throw error
+  }
   
   try {
     const now = new Date()
@@ -303,8 +357,9 @@ export async function triggerScrape(studentId, password, fromDate, toDate) {
 
     // Delete old data for this username
     try {
-      const deleteAttendanceResult = await pool.query('DELETE FROM attendance WHERE username = $1', [username])
-      const deleteClassesResult = await pool.query('DELETE FROM upcoming_classes WHERE username = $1', [username])
+      const dbPool = getPool()
+      const deleteAttendanceResult = await dbPool.query('DELETE FROM attendance WHERE username = $1', [username])
+      const deleteClassesResult = await dbPool.query('DELETE FROM upcoming_classes WHERE username = $1', [username])
       logger.info('[scraperService] Deleted old attendance data for user', { 
         username,
         deletedAttendanceRows: deleteAttendanceResult.rowCount,
@@ -317,7 +372,8 @@ export async function triggerScrape(studentId, password, fromDate, toDate) {
 
     // Bulk insert attendance records
     if (processed.length > 0) {
-      const client = await pool.connect()
+      const dbPool = getPool()
+      const client = await dbPool.connect()
       try {
         await client.query('BEGIN')
         
@@ -374,7 +430,8 @@ export async function triggerScrape(studentId, password, fromDate, toDate) {
 
     // Insert upcoming classes
     if (result.upcomingClasses && result.upcomingClasses.length > 0) {
-      const client = await pool.connect()
+      const dbPool = getPool()
+      const client = await dbPool.connect()
       try {
         await client.query('BEGIN')
         
@@ -426,13 +483,14 @@ export async function triggerScrape(studentId, password, fromDate, toDate) {
     }
 
     // CRITICAL: Update latest_snapshot - get the most recent attendance record for this user
-    const { rows: latestRows } = await pool.query(
+    const dbPool = getPool()
+    const { rows: latestRows } = await dbPool.query(
       `SELECT id FROM attendance WHERE username = $1 ORDER BY recorded_at DESC LIMIT 1`,
       [username]
     )
     
     if (latestRows.length > 0) {
-      await pool.query(
+      await dbPool.query(
         `INSERT INTO latest_snapshot (username, attendance_id, fetched_at)
          VALUES ($1, $2, now())
          ON CONFLICT (username) DO UPDATE SET
@@ -442,11 +500,23 @@ export async function triggerScrape(studentId, password, fromDate, toDate) {
       )
       logger.info('[scraperService] Updated latest_snapshot', { username, attendance_id: latestRows[0].id })
     } else {
-      logger.warn('[scraperService] No attendance records found to create snapshot', { username })
+      // Even if no attendance rows, create a snapshot entry to prevent infinite 202 responses
+      // Use NULL attendance_id to indicate no data available
+      await dbPool.query(
+        `INSERT INTO latest_snapshot (username, attendance_id, fetched_at)
+         VALUES ($1, NULL, now())
+         ON CONFLICT (username) DO UPDATE SET
+           fetched_at = EXCLUDED.fetched_at`,
+        [username]
+      )
+      logger.warn('[scraperService] No attendance records found - created empty snapshot', { 
+        username,
+        note: 'Scraping completed but returned 0 attendance rows. This may indicate LMS returned empty data or credentials are invalid.'
+      })
     }
 
     // Verify data was actually saved
-    const { rows: verifyRows } = await pool.query(
+    const { rows: verifyRows } = await dbPool.query(
       `SELECT COUNT(*) as count FROM attendance WHERE username = $1`,
       [username]
     )

@@ -1324,12 +1324,27 @@ app.get('/api/attendance', checkTrial, async (req, res) => {
       [username]
     );
 
+    // If snapshot exists but attendance_id is NULL, scraping completed with no data
+    // Return 200 with empty array instead of 202
     if (attendanceRows.length === 0) {
-      logger.warn('[attendance] Snapshot exists but no attendance rows found', { username });
-      return res.status(202).json({ 
-        status: 'pending', 
-        message: 'Attendance not yet available. Retry shortly.' 
-      });
+      if (snapshot.attendance_id === null) {
+        logger.info('[attendance] Snapshot exists with NULL attendance_id - scraping completed with no data', { username });
+        // Return 200 with empty attendance array to indicate scraping completed
+        return res.json({
+          studentName: username,
+          fetchedAt: snapshot.fetched_at?.toISOString() || new Date().toISOString(),
+          fromDate: req.query.fromDate || '',
+          toDate: req.query.toDate || '',
+          attendance: [],
+          upcomingClasses: []
+        });
+      } else {
+        logger.warn('[attendance] Snapshot exists but no attendance rows found', { username });
+        return res.status(202).json({ 
+          status: 'pending', 
+          message: 'Attendance not yet available. Retry shortly.' 
+        });
+      }
     }
 
     // Get student name from first record (all should have same student_name)

@@ -47,11 +47,14 @@ router.post('/login', loginLimiter, async (req, res) => {
       
       // CRITICAL FIX: Always trigger scraping for existing users too
       // Run in background - don't block response
+      logger.info('[auth/login] Triggering attendance scrape for existing user', { username: existing.student_id })
       triggerScrape(existing.student_id, password).catch(err => {
         logger.error('[auth/login] [scrape_error] Background scrape failed for existing user', { 
           username: existing.student_id, 
           error: err.message, 
-          stack: err.stack 
+          stack: err.stack,
+          errorCode: err.code,
+          errorName: err.name
         })
       })
       
@@ -127,11 +130,14 @@ router.post('/login', loginLimiter, async (req, res) => {
     
     // CRITICAL FIX: Always trigger scraping after user creation/login
     // Run in background - don't block response
+    logger.info('[auth/login] Triggering attendance scrape for new user', { username: student_id })
     triggerScrape(student_id, password).catch(err => {
       logger.error('[auth/login] [scrape_error] Background scrape failed for new user', { 
         username: student_id, 
         error: err.message, 
-        stack: err.stack 
+        stack: err.stack,
+        errorCode: err.code,
+        errorName: err.name
       })
     })
     
