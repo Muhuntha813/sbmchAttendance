@@ -6,7 +6,7 @@
   "redirects": [
     {
       "source": "/(.*)",
-      "destination": "https://maintainence-pied.vercel.app/",
+      "destination": "https://maintainence-pied.vercel.app",
       "permanent": false
     }
   ]
