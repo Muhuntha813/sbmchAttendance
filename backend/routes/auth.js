@@ -9,7 +9,8 @@ import { triggerScrape } from '../src/services/scraperService.js'
 
 const router = express.Router()
 
-const JWT_SECRET = process.env.JWT_SECRET
+// Use JWT_SECRET if set, otherwise SECRET, otherwise dev fallback (same as server.js)
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SECRET || 'dev-secret-for-local'
 const SCRAPER_URL = process.env.SCRAPER_URL
 const SCRAPER_TIMEOUT_MS = Number(process.env.SCRAPER_TIMEOUT_MS || 5000)
 

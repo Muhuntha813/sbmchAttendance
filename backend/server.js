@@ -3,7 +3,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load .env from project root
+// Load .env from project root (where .env file is located)
 dotenv.config({
   path: path.resolve(process.cwd(), '.env')
 });

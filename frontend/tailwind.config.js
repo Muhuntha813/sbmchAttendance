@@ -1,8 +1,18 @@
 /** @type {import('tailwindcss').Config} */
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Resolve content paths relative to this config file's directory
+// This ensures paths work regardless of where the build command is run from
+const contentBase = __dirname
+
 export default {
   content: [
-    "./index.html",
-    "./src/**/*.{js,jsx,ts,tsx}",
+    path.join(contentBase, 'index.html'),
+    path.join(contentBase, 'src', '**', '*.{js,jsx,ts,tsx}'),
   ],
   darkMode: 'class',
   theme: {
